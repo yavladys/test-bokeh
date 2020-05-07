@@ -1,3 +1,4 @@
+
 from bokeh.io import curdoc
 from bokeh.models import (ColorBar, GeoJSONDataSource, HoverTool, LinearColorMapper, DateSlider, LabelSet, Select,
                           Panel, Tabs)
@@ -9,25 +10,23 @@ import pandas as pd
 from datetime import date, datetime
 from datetime import timedelta
 
+# Import geopandas package
+# Read in shapefile and examine data
+contiguous_ukr = gpd.read_file('data/ukr_admbnda_adm1_q2_sspe_20171221.shp',
+                              encoding='utf-8')
 
-mode = 'deploy'
-relative_path = '' if mode == 'deploy' else '/Users/vladyslavyakovenko/PycharmProjects/covid_map_ukraine/'
+contiguous_ukr.loc[contiguous_ukr['ADM1_PCODE']=='UA80', 'ADM1_UA']='м.Київ'
+contiguous_ukr['centr_x'] = contiguous_ukr['geometry'].apply(lambda point: point.centroid.x)
+contiguous_ukr['centr_y'] = contiguous_ukr['geometry'].apply(lambda point: point.centroid.y)
 
-# Read supply data:
-data = pd.read_csv(relative_path + "data/data.csv")
+to_append1 = contiguous_ukr[contiguous_ukr['ADM1_UA']!='м.Київ']
+to_append2 = contiguous_ukr[contiguous_ukr['ADM1_UA']=='м.Київ']
+contiguous_ukr = pd.concat([to_append1, to_append2])
+
+orig_df = pd.read_csv("data/data.csv")
+data = orig_df.copy()
 data.index = pd.to_datetime(data['Дата'], format="%d.%m.%Y %H:%M:%S").dt.date
 data.index.name = 'Date'
-
-# Read and process shape file:
-ukr_shp = gpd.read_file(relative_path + "/data/ukr_admbnda_adm1_q2_sspe_20171221.shp", encoding="utf-8")
-ukr_shp.loc[ukr_shp['ADM1_PCODE'] == 'UA80', 'ADM1_UA'] = 'м.Київ'
-# Add coordinates of centroids:
-ukr_shp['centr_x'] = ukr_shp['geometry'].apply(lambda point: point.centroid.x)
-ukr_shp['centr_y'] = ukr_shp['geometry'].apply(lambda point: point.centroid.y)
-# Place nested area in the end of data frame to make visualisation easier:
-ukr_shp = pd.concat([
-    ukr_shp[ukr_shp['ADM1_UA'] != 'м.Київ'],
-    ukr_shp[ukr_shp['ADM1_UA'] == 'м.Київ']])
 
 
 FEATURES_DOC = [
@@ -67,15 +66,15 @@ FEATURES_EQUIP = [
 ]
 
 
-select_feature = Select(title='Обрати характеристику:', value=FEATURES_DOC[0], options=FEATURES_DOC)
-slider_time = DateSlider(title='Обрати дату', start=date(2020, 3, 31), end=date(2020, 5, 6),
-                         value=date(2020, 5, 6), step=10, format="%d.%m.%Y", show_value=True)
+select_feature = Select(title='Обрати характеристику', value=FEATURES_DOC[0], options=FEATURES_DOC)
+slider_time = DateSlider(title='Select day:', start=date(2020, 3, 31), end=datetime.now().date() - timedelta(days=1),
+                         value=datetime.now().date() - timedelta(days=1), step=10)
 
 
 def create_sample(day):
     grouped_df = data[data.index == day].groupby('Область')[FEATURES_BED + FEATURES_EQUIP + FEATURES_DOC].agg(
         sum).reset_index()
-    grouped_merged_df = ukr_shp.merge(grouped_df, how='left', left_on='ADM1_UA', right_on='Область')
+    grouped_merged_df = contiguous_ukr.merge(grouped_df, how='left', left_on='ADM1_UA', right_on='Область')
     return grouped_merged_df
 
 
@@ -92,7 +91,6 @@ def make_tick_labels(n, buckets=5):
 
 
 palette = brewer['Oranges'][9]
-#palette = mpl['Inferno'][9]
 palette = palette[::-1]
 color_mapper = LinearColorMapper(palette=palette, low=0,
                                  high=get_max_feature_value_on_day(select_feature.value,
@@ -102,13 +100,11 @@ geosource = GeoJSONDataSource(geojson=create_sample(slider_time.value_as_date).t
 
 
 def make_plot():
-    p = figure(plot_height=550, plot_width=750, title=select_feature.value)
-    p.title.align = 'center'
+    p = figure(title='Map of Ukraine', plot_height=700, plot_width=1000)
     p.xgrid.visible = False
     p.ygrid.visible = False
     p.xaxis.visible = False
     p.yaxis.visible = False
-    p.outline_line_color = None
     p.patches('xs', 'ys', source=geosource,
               fill_color={'field': FEATURES_DOC[0],
                           'transform': color_mapper},
@@ -124,20 +120,19 @@ def make_plot():
 
 plot = make_plot()
 
-tab_doc = Panel(child=column(row(select_feature), row(plot), row(slider_time)), title="Лікарі")
-tab_bed = Panel(child=column(row(select_feature), row(plot), row(slider_time)), title="Ліжка")
-tab_equip = Panel(child=column(row(select_feature), row(plot), row(slider_time)), title="Обладнання")
-tabs = Tabs(tabs=[tab_doc, tab_bed, tab_equip], name='tabs_custom')
+tab_doc = Panel(child=column(row(select_feature), row(slider_time), row(plot)), title="Лікарі")
+tab_bed = Panel(child=column(row(select_feature), row(slider_time), row(plot)), title="Ліжка")
+tab_equip = Panel(child=column(row(select_feature), row(slider_time), row(plot)), title="Обладнання")
+tabs = Tabs(tabs=[tab_doc, tab_bed, tab_equip])
 
-# label_figures = LabelSet(x='centr_x', y='centr_y', text=select_feature.value, x_offset=5, y_offset=-10,
-#                          source=geosource, render_mode='canvas', text_font_size='12px', text_align='left')
-# plot.add_layout(label_figures)
+label_figures = LabelSet(x='centr_x', y='centr_y', text=select_feature.value, x_offset=5, y_offset=-10,
+                         source=geosource, render_mode='canvas', text_font_size='12px', text_align='left')
+plot.add_layout(label_figures)
 
 color_bar = ColorBar(color_mapper=color_mapper,
                      label_standoff=8,
-                     width=250, height=10,
+                     width=500, height=20,
                      border_line_color=None,
-                     background_fill_color='#f7fbff',
                      location=(0, 0),
                      orientation='horizontal',
                      major_label_overrides=
@@ -148,7 +143,7 @@ plot.add_layout(color_bar, 'above')
 labels = LabelSet(x='centr_x', y='centr_y', text='ADM1_UA',
                   x_offset=5, y_offset=5, source=geosource, render_mode='canvas', text_font_size='8px',
                   text_align='left')
-#plot.add_layout(labels)
+plot.add_layout(labels)
 
 
 def update_legend_color_bar(feature, day):
@@ -163,17 +158,17 @@ def update_color_mapper(feature, day):
 
 
 def update_tooltips_after_feature_change(attr, old, new):
-    TOOLTIPS = [('Область', '@ADM1_UA'), (new, '@{' + str(new) + '}')]
+    TOOLTIPS = [(new, '@{' + str(new) + '}')]
     plot.tools = [tool for tool in plot.tools if type(tool) != HoverTool]
     hover = HoverTool(tooltips=TOOLTIPS)
     plot.add_tools(hover)
 
 
 def update_tabs(attr, old, new):
-    if new == 0:
+    if (new == 0):
         select_feature.options = FEATURES_DOC
         select_feature.value = FEATURES_DOC[0]
-    elif new == 1:
+    elif (new == 1):
         select_feature.options = FEATURES_BED
         select_feature.value = FEATURES_BED[0]
     else:
@@ -198,27 +193,21 @@ def update_src_after_day_change(attr, old, new):
     geosource.geojson = create_sample(day).to_json()
 
 
-# def update_label_figures_after_feature_change(attr, old, new):
-#     label_figures.text = new
+def update_label_figures_after_feature_change(attr, old, new):
+    label_figures.text = new
 
 
-TOOLTIPS = [('Область', '@ADM1_UA'),
-            (select_feature.value, '@{' + str(select_feature.value) + '}')]
-
+TOOLTIPS = [(select_feature.value, '@{' + str(select_feature.value) + '}')]
 plot.add_tools(HoverTool(tooltips=TOOLTIPS))
 
 tabs.on_change('active', update_tabs)
 
 select_feature.on_change('value', update_color_mapper_and_legend_color_bar_after_feature_change)
 select_feature.on_change('value', update_tooltips_after_feature_change)
-select_feature.js_link('value', plot.title, 'text')
-
-# select_feature.on_change('value', update_label_figures_after_feature_change)
+select_feature.on_change('value', update_label_figures_after_feature_change)
 
 slider_time.on_change('value_throttled', update_src_after_day_change)
 slider_time.on_change('value_throttled', update_color_mapper_and_legend_color_bar_after_day_change)
 
 
 curdoc().add_root(column(tabs))
-curdoc().template_variables["user_id"] = 'user_id'
-curdoc().title = 'SupplyCovid'
