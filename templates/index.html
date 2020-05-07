@@ -1,0 +1,21 @@
+{% extends base %}
+
+
+{% block preamble %}
+<style>
+  @import url(https://fonts.googleapis.com/css?family=Noto+Sans);
+  body {
+    background: #F2F9FE;
+  }
+</style>
+{% endblock %}
+
+
+{% block contents %}
+<div style='font-size: large' align='center'>
+  <p style="font-family: helvetica; font-size:16pt;">
+    Забезпеченість медичних закладів України
+  </p>
+{{ super() }}
+</div>
+{% endblock %}
